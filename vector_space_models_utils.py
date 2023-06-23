@@ -1,7 +1,10 @@
 import numpy as np
+import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 import torch
+
+from sklearn.metrics import ndcg_score
 
 def rank_comments(post, comments, vectorizer, rank_by='cosine'):
     """
@@ -95,9 +98,12 @@ class Tf_idf_vectorizer(Text_to_vector):
         vector_dim = len(self.idf_dict)
         result = np.zeros(vector_dim)
         tokemized_text = self.tokenizer.tokenize(text)
-        for i, token in enumerate(self.idf_dict.keys()):
-            tf = tokemized_text.count(token)
-            result[i] = tf * self.idf_dict[token]
+        idf_list = list(self.idf_dict.keys())
+        for token in tokemized_text:
+            if token in self.idf_dict.keys():
+                tf = tokemized_text.count(token)
+                i = idf_list.index(token)
+                result[i] = tf * self.idf_dict[token]
 
         return result
     
@@ -131,3 +137,28 @@ class BERT_vectorizer(Text_to_vector):
         result = torch.mean(tokens_vecs, dim=0)
 
         return result
+    
+def get_ndcg_of_whole_dataset(train_df, vectorizer, verbose=False):
+
+    predicted_ranks = []
+    true_ranks = []
+
+    for i in range(len(train_df)):
+        comments_text = []
+        post_text = train_df.loc[i]['text']
+        comments_text.append(train_df.loc[i]['comments_text_0'])
+        comments_text.append(train_df.loc[i]['comments_text_1'])
+        comments_text.append(train_df.loc[i]['comments_text_2'])
+        comments_text.append(train_df.loc[i]['comments_text_3'])
+        comments_text.append(train_df.loc[i]['comments_text_4'])
+
+        predicted_rank = rank_comments(post_text, comments_text, vectorizer)
+        true_rank = [0, 1, 2, 3, 4]
+
+        predicted_ranks.append(predicted_rank)
+        true_ranks.append(true_rank)
+    result = ndcg_score(true_ranks, predicted_ranks, k=5)
+    if verbose:
+        print(f'NDCG@5: {result}')
+
+    return result
