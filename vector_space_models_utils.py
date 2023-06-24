@@ -120,14 +120,16 @@ class BERT_vectorizer(Text_to_vector):
 
     def text_to_vector(self, text: str):
         self.bert_model.eval()
-
-
         marked_text = "[CLS] " + text + " [SEP]"
         tokenized_text = self.bert_tokenizer.tokenize(marked_text)
+        if len(tokenized_text) > 512:
+            tokenized_text = tokenized_text[:509]
+            tokenized_text.append('[SEP]')
         indexed_tokens = self.bert_tokenizer.convert_tokens_to_ids(tokenized_text)
         segments_ids = [1] * len(tokenized_text)
         tokens_tensor = torch.tensor([indexed_tokens])
         segments_tensor = torch.tensor([segments_ids]) # attention mask
+        outputs = ''
 
         with torch.no_grad():
             outputs = self.bert_model(tokens_tensor, segments_tensor)
@@ -138,7 +140,7 @@ class BERT_vectorizer(Text_to_vector):
 
         return result
     
-def get_ndcg_of_whole_dataset(train_df, vectorizer, verbose=False):
+def get_ndcg_of_whole_dataset(train_df, vectorizer, verbose=False, k=1):
 
     predicted_ranks = []
     true_ranks = []
@@ -157,8 +159,60 @@ def get_ndcg_of_whole_dataset(train_df, vectorizer, verbose=False):
 
         predicted_ranks.append(predicted_rank)
         true_ranks.append(true_rank)
-    result = ndcg_score(true_ranks, predicted_ranks, k=5)
+    result = ndcg_score(true_ranks, predicted_ranks, k=k)
     if verbose:
-        print(f'NDCG@5: {result}')
+        print(f'NDCG@{k}: {result}')
 
     return result
+
+def get_predicted_order(train_df, vectorizer, verbose=False):
+
+    predicted_order= []
+    true_ranks = []
+
+    for i in range(len(train_df)):
+        comments_text = []
+        post_text = train_df.loc[i]['text']
+        comments_text.append(train_df.loc[i]['comments_text_0'])
+        comments_text.append(train_df.loc[i]['comments_text_1'])
+        comments_text.append(train_df.loc[i]['comments_text_2'])
+        comments_text.append(train_df.loc[i]['comments_text_3'])
+        comments_text.append(train_df.loc[i]['comments_text_4'])
+
+        predicted_rank = rank_comments(post_text, comments_text, vectorizer)
+
+        predicted_order.append(predicted_rank)
+
+    return predicted_order
+
+def hits_score(predicted_orders, k=1):
+    """
+    dup_ranks: list of predicted ranks [[0, 3, 2, 4, 1], [1, 3, 4, 0, 2]]
+    result: HITS@k
+    """
+    hits_value = 0
+
+    for pr in predicted_orders:
+        predicted_position_of_top_comment = pr.index(0) + 1 # from 1, not from 0
+        if predicted_position_of_top_comment <= k:
+            hits_value += 1
+
+    hits_value = hits_value / len(predicted_orders)
+
+    return hits_value
+
+def dcg_score(predicted_orders, k=1):
+    """
+        dup_ranks: list of predicted ranks
+        result: DCG@k
+    """
+    dcg_value = 0
+
+    for pr in predicted_orders:
+        predicted_position_of_top_comment = pr.index(0) + 1 # from 1, not from 0
+        if predicted_position_of_top_comment <= k:
+            dcg_value += 1 / np.log2(1+predicted_position_of_top_comment)
+
+    dcg_value = dcg_value / len(predicted_orders)
+
+    return dcg_value
