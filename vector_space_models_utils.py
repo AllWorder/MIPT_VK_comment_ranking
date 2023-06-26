@@ -41,11 +41,10 @@ def rank_comments(post, comments, vectorizer, rank_by='cosine'):
 
         for res in distance_and_vectors:
             initial_index = comments.index(res[1])
-            predicted_order.append(initial_index)      
+            predicted_order.append(initial_index)   
 
     else:
         raise AttributeError(f'No rank_by {rank_by}, please, use other. For emample, \'cosine\'')
-
 
     return predicted_order
 
@@ -126,12 +125,12 @@ class BERT_vectorizer(Text_to_vector):
     bert_model : pretrained BERT model
     bert_tokenizer : pretrained BERT tokenizer
     """
-    def __init__(self, bert_model, bert_tokenizer, vectorization_type='default'):
+    def __init__(self, bert_model, bert_tokenizer):
         self.bert_model = bert_model
         self.bert_tokenizer = bert_tokenizer
-        self.vectorization_type = vectorization_type
 
     def text_to_vector(self, text: str):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.bert_model.eval()
         marked_text = "[CLS] " + text + " [SEP]"
         tokenized_text = self.bert_tokenizer.tokenize(marked_text)
@@ -140,23 +139,19 @@ class BERT_vectorizer(Text_to_vector):
             tokenized_text.append('[SEP]')
         indexed_tokens = self.bert_tokenizer.convert_tokens_to_ids(tokenized_text)
         segments_ids = [1] * len(tokenized_text)
-        tokens_tensor = torch.tensor([indexed_tokens])
-        segments_tensor = torch.tensor([segments_ids]) # attention mask
+        tokens_tensor = torch.tensor([indexed_tokens]).to(device)
+        segments_tensor = torch.tensor([segments_ids]).to(device) # attention mask
         outputs = ''
 
         with torch.no_grad():
             outputs = self.bert_model(tokens_tensor, segments_tensor)
 
-        if self.vectorization_type == 'default':
-            tokens_vecs = outputs.hidden_states[-2][0]
-            result = torch.mean(tokens_vecs, dim=0)
-            return result
-        elif self.vectorization_type == 'cls':
-            lhs_tensor = outputs.last_hidden_state
-            cls_tensor = lhs_tensor[:, 0, :]
-            return cls_tensor.detach().numpy()
-        else:
-            raise AttributeError(f'No vectorization type {self.vectorization_type}, please, use other')
+        tokens_vecs = outputs.hidden_states[-2][0]
+
+        result = torch.mean(tokens_vecs, dim=0)
+
+        return result.to('cpu')
+    
 def get_ndcg(predicted_ranks, verbose=False, k=5):
 
     predicted_scores = []
@@ -178,7 +173,7 @@ def get_ndcg(predicted_ranks, verbose=False, k=5):
 
     return result
 
-def get_predicted_order(train_df, vectorizer, verbose=False, rank_by='cosine'):
+def get_predicted_order(train_df, vectorizer, rank_by='cosine'):
 
     predicted_order= []
 
