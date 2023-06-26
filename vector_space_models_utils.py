@@ -31,6 +31,18 @@ def rank_comments(post, comments, vectorizer, rank_by='cosine'):
         for res in cosine_and_comments:
             initial_index = comments.index(res[1])
             predicted_order.append(initial_index)
+
+    elif rank_by == 'euclidian_distance':
+        distance_and_vectors = []
+        for vec, comment in zip(vec_comments, comments):
+            distance_and_vectors.append( [np.linalg.norm(vec_post - vec), comment] )
+
+        distance_and_vectors = sorted(distance_and_vectors, key=lambda tup: tup[0])
+
+        for res in distance_and_vectors:
+            initial_index = comments.index(res[1])
+            predicted_order.append(initial_index)      
+
     else:
         raise AttributeError(f'No rank_by {rank_by}, please, use other. For emample, \'cosine\'')
 
@@ -114,9 +126,10 @@ class BERT_vectorizer(Text_to_vector):
     bert_model : pretrained BERT model
     bert_tokenizer : pretrained BERT tokenizer
     """
-    def __init__(self, bert_model, bert_tokenizer):
+    def __init__(self, bert_model, bert_tokenizer, vectorization_type='default'):
         self.bert_model = bert_model
         self.bert_tokenizer = bert_tokenizer
+        self.vectorization_type = vectorization_type
 
     def text_to_vector(self, text: str):
         self.bert_model.eval()
@@ -134,41 +147,40 @@ class BERT_vectorizer(Text_to_vector):
         with torch.no_grad():
             outputs = self.bert_model(tokens_tensor, segments_tensor)
 
-        tokens_vecs = outputs.hidden_states[-2][0]
+        if self.vectorization_type == 'default':
+            tokens_vecs = outputs.hidden_states[-2][0]
+            result = torch.mean(tokens_vecs, dim=0)
+            return result
+        elif self.vectorization_type == 'cls':
+            lhs_tensor = outputs.last_hidden_state
+            cls_tensor = lhs_tensor[:, 0, :]
+            return cls_tensor.detach().numpy()
+        else:
+            raise AttributeError(f'No vectorization type {self.vectorization_type}, please, use other')
+def get_ndcg(predicted_ranks, verbose=False, k=5):
 
-        result = torch.mean(tokens_vecs, dim=0)
+    predicted_scores = []
+    true_scores = []
 
-        return result
-    
-def get_ndcg_of_whole_dataset(train_df, vectorizer, verbose=False, k=1):
+    for predicted_rank in predicted_ranks:
 
-    predicted_ranks = []
-    true_ranks = []
+        true_score = [5, 4, 3, 2, 1]
+        predicted_score = []
+        for i in range(5):
+            relevance_for_pos_i = 5 - predicted_rank.index(i)
+            predicted_score.append(relevance_for_pos_i)
 
-    for i in range(len(train_df)):
-        comments_text = []
-        post_text = train_df.loc[i]['text']
-        comments_text.append(train_df.loc[i]['comments_text_0'])
-        comments_text.append(train_df.loc[i]['comments_text_1'])
-        comments_text.append(train_df.loc[i]['comments_text_2'])
-        comments_text.append(train_df.loc[i]['comments_text_3'])
-        comments_text.append(train_df.loc[i]['comments_text_4'])
-
-        predicted_rank = rank_comments(post_text, comments_text, vectorizer)
-        true_rank = [0, 1, 2, 3, 4]
-
-        predicted_ranks.append(predicted_rank)
-        true_ranks.append(true_rank)
-    result = ndcg_score(true_ranks, predicted_ranks, k=k)
+        predicted_scores.append(predicted_score)
+        true_scores.append(true_score)
+    result = ndcg_score(true_scores, predicted_scores, k=k)
     if verbose:
         print(f'NDCG@{k}: {result}')
 
     return result
 
-def get_predicted_order(train_df, vectorizer, verbose=False):
+def get_predicted_order(train_df, vectorizer, verbose=False, rank_by='cosine'):
 
     predicted_order= []
-    true_ranks = []
 
     for i in range(len(train_df)):
         comments_text = []
@@ -179,7 +191,7 @@ def get_predicted_order(train_df, vectorizer, verbose=False):
         comments_text.append(train_df.loc[i]['comments_text_3'])
         comments_text.append(train_df.loc[i]['comments_text_4'])
 
-        predicted_rank = rank_comments(post_text, comments_text, vectorizer)
+        predicted_rank = rank_comments(post_text, comments_text, vectorizer, rank_by=rank_by)
 
         predicted_order.append(predicted_rank)
 
