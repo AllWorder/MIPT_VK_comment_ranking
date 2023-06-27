@@ -145,12 +145,26 @@ class BERT_vectorizer(Text_to_vector):
 
         with torch.no_grad():
             outputs = self.bert_model(tokens_tensor, segments_tensor)
+            hidden_states = outputs[2]
 
-        tokens_vecs = outputs.hidden_states[-2][0]
+        tokens_vecs = hidden_states[-2][0]
 
         result = torch.mean(tokens_vecs, dim=0)
 
         return result.to('cpu')
+    
+class Sentense_transformers_vectorizer(Text_to_vector):
+    """
+    Class for converting texts to vectors with help of latent vectors from BERT model
+    """
+    def __init__(self, sentense_transformers_model):
+        self.sentense_transformers_model = sentense_transformers_model
+    
+    def text_to_vector(self, text: str):
+
+        text_vec = self.sentense_transformers_model.encode(text) 
+
+        return text_vec
     
 def get_ndcg(predicted_ranks, verbose=False, k=5):
 
